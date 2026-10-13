@@ -137,6 +137,8 @@ Plink は 0.84（`C:\Program Files\PuTTY\plink.exe`）。比べるために鍵�
 | `she.exe` | `build.sh` が作ったもの（`Install-She.ps1` がここから取る） |
 | `go.mod`・`go.sum` | Go の部品（`golang.org/x/crypto`・`golang.org/x/term`） |
 
+このフォルダは git のリポジトリ（2026-10-12〜。作者は研究室のアカウント `TadaLab`）。`she.exe` と `__pycache__/`（`build.sh` の検査が作る）は `.gitignore` で外してある。直したらコミットしてから `build.sh`。
+
 ## 分かっている制限
 
 - 名前付きの bash は、PC のデーモンが生きている間だけある（`she -stop`・PC の再起動・she の入れ替えで消える）。
