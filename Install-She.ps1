@@ -1,38 +1,41 @@
-# Install-She.ps1 - put she on this PC (2026-10-12, ~/lab-tools/she/README.md).
+# Install-She.ps1 - put she on this Windows PC (see README.md)
 #
-#   scp tadalab:lab-tools/she/Install-She.ps1 $env:TEMP\
-#   powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\Install-She.ps1
+#   powershell -NoProfile -ExecutionPolicy Bypass -File Install-She.ps1 [-SshHost HOST] [-Exe she.exe]
 #
-# Needs: ssh tadalab working with a key (~/lab-tools/lab-ssh/README.md).
-# Does, each step only when not done yet (safe to run again to update she):
-#   1. she.exe from the server (~/lab-tools/she/she.exe) to %USERPROFILE%\bin
-#   2. %USERPROFILE%\bin on the user PATH
-#   3. the Tab files: %USERPROFILE%\.config\she\completion.bash and .ps1
-#   4. Git Bash: ~/.bashrc reads completion.bash (and ~/.bash_profile reads ~/.bashrc)
-#   5. PowerShell profile: reads completion.ps1, and "bash" opens Git Bash here
-# State of she itself is kept in %USERPROFILE%\.she (not AppData: see README).
-# Not 'Stop': Windows PowerShell 5.1 takes any stderr line of ssh (the server's
-# notice) as an error. Each command is checked by its exit code instead.
+# -Exe: the she.exe to install (default: the one next to this script).
+# -SshHost: the host she uses, as ssh knows it (~/.ssh/config); it must take
+# a key without a password. Without it the host set before stays.
+# Each step runs only when not done yet, so run it again to update she:
+#   1. she.exe to %USERPROFILE%\bin, and that folder on the user PATH
+#   2. the Tab files: %USERPROFILE%\.config\she\completion.bash and .ps1
+#   3. Git Bash: ~/.bashrc reads completion.bash (and ~/.bash_profile reads ~/.bashrc)
+#   4. PowerShell profile: reads completion.ps1, and "bash" opens Git Bash here
+# she keeps its state in %USERPROFILE%\.she. ASCII only.
+param(
+    [string]$SshHost,
+    [string]$Exe = (Join-Path $PSScriptRoot 'she.exe')
+)
 $bin = Join-Path $env:USERPROFILE 'bin'
-$exe = Join-Path $bin 'she.exe'
+$dst = Join-Path $bin 'she.exe'
 $cfg = Join-Path $env:USERPROFILE '.config\she'
 
-& ssh -o BatchMode=yes tadalab true 2>$null
-if ($LASTEXITCODE -ne 0) { throw 'ssh tadalab does not work without a password; set up the key first (lab-ssh)' }
+if (-not (Test-Path $Exe)) { throw "no she.exe at $Exe (build it with build.sh, or give -Exe)" }
+if ($SshHost) {
+    & ssh -o BatchMode=yes $SshHost true 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "ssh $SshHost does not work with a key and no password" }
+}
 
 # 1. she.exe (a running helper keeps the old file open: stop it, then replace)
 New-Item -ItemType Directory -Force $bin | Out-Null
-& scp -q tadalab:lab-tools/she/she.exe "$exe.new"
-if ($LASTEXITCODE -ne 0) { throw 'scp of she.exe failed' }
-if (Test-Path $exe) {
-    & $exe -stop 2>$null
-    Move-Item -Force $exe "$exe.old"
+Copy-Item -Force $Exe "$dst.new"
+if (Test-Path $dst) {
+    & $dst -stop 2>$null
+    Move-Item -Force $dst "$dst.old"
 }
-Move-Item -Force "$exe.new" $exe
-Remove-Item -Force "$exe.old" -ErrorAction SilentlyContinue
-"she.exe  " + (Get-FileHash $exe).Hash.Substring(0, 16)
+Move-Item -Force "$dst.new" $dst
+Remove-Item -Force "$dst.old" -ErrorAction SilentlyContinue
+"she.exe  " + (Get-FileHash $dst).Hash.Substring(0, 16)
 
-# 2. PATH (new terminals see it)
 $p = [Environment]::GetEnvironmentVariable('Path', 'User')
 if (-not $p) { $p = '' }
 if (($p -split ';') -notcontains $bin) {
@@ -40,14 +43,15 @@ if (($p -split ';') -notcontains $bin) {
     "PATH     added $bin"
 }
 if (($env:Path -split ';') -notcontains $bin) { $env:Path = "$env:Path;$bin" }
+if ($SshHost) { & $dst -setup $SshHost }
 
-# 3. Tab files, written by she itself (cmd's > keeps the bytes as they are)
+# 2. Tab files, written by she itself (cmd's > keeps the bytes as they are)
 New-Item -ItemType Directory -Force $cfg | Out-Null
-& cmd /c "`"$exe`" --bash-completion > `"$cfg\completion.bash`""
-& cmd /c "`"$exe`" --powershell-completion > `"$cfg\completion.ps1`""
+& cmd /c "`"$dst`" --bash-completion > `"$cfg\completion.bash`""
+& cmd /c "`"$dst`" --powershell-completion > `"$cfg\completion.ps1`""
 "Tab      $cfg"
 
-# 4. Git Bash
+# 3. Git Bash
 function Add-Line([string]$file, [string]$line, [string]$mark) {
     if ((Test-Path $file) -and (Select-String -Path $file -SimpleMatch $mark -Quiet)) { return $false }
     $nl = [string][char]10
@@ -68,7 +72,7 @@ if (-not (Test-Path $prof)) {
     "Git Bash ~/.bash_profile"
 }
 
-# 5. PowerShell profile (Windows PowerShell 5.1)
+# 4. PowerShell profile (Windows PowerShell 5.1)
 $psprof = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\Microsoft.PowerShell_profile.ps1'
 New-Item -ItemType Directory -Force (Split-Path $psprof) | Out-Null
 $gitbash = 'C:\Program Files\Git\bin\bash.exe'
@@ -78,7 +82,7 @@ if (Test-Path $gitbash) {
 if (Add-Line $psprof '. "$HOME\.config\she\completion.ps1"   # she: Tab for she <, she NAME for a password' '.config\she\completion.ps1') { "PowerShell profile" }
 
 # check
-$out = 'echo she-ok' | & $exe
+$out = 'echo she-ok' | & $dst
 "check    $out"
-if ($out -ne 'she-ok') { throw 'she did not answer' }
+if ($out -ne 'she-ok') { throw 'she did not answer (set the host with -SshHost or she -setup HOST)' }
 'Done. Open a new terminal (PATH and the profile are read when it starts).'

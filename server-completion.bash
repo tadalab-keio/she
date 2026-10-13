@@ -5,7 +5,7 @@
 # bash kept for NAME (she --complete). Tab on the first argument completes
 # the names of the kept bashes (she -l). The PC's she wrapper (a password
 # read by bash) is left out: she here reads it itself.
-. ~/lab-tools/she/completion.bash
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/completion.bash"
 unset -f she
 _she_server() {
   local x

@@ -1,9 +1,7 @@
 #!/bin/bash
-# build.sh - build she.exe for Windows and put it where the PCs fetch it
-# (Install-She.ps1 copies ~/lab-tools/she/she.exe). Run on the server:
-#   bash ~/lab-tools/she/build.sh
-# Until 2026-10-12 it went to /usr/local/share/she to keep it out of the Drive
-# backup, but /usr/local is backed up too: it stays next to its source.
+# build.sh - check the sources and build she.exe for Windows next to them
+# (Install-She.ps1 installs the she.exe next to it). Needs Go, Python 3, bash.
+#   bash build.sh
 set -euo pipefail
 cd "$(dirname "$0")"
 export PATH=$PATH:/usr/local/go/bin

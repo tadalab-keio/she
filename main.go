@@ -18,7 +18,7 @@
 //	                 it and send it to the command running in NAME
 //	she -start       open the connection now
 //	she -stop        close the connection (the next she opens it again)
-//	she -setup HOST  use this host from ~/.ssh/config (default tadalab)
+//	she -setup HOST  the host to use, as ssh knows it (~/.ssh/config); needed once
 //
 // The first call starts a hidden helper (she -daemon) which keeps one SSH
 // connection to the host and one dispatcher on the server (modes.go). The
@@ -99,7 +99,7 @@ func hostName() string {
 	if err == nil && strings.TrimSpace(string(b)) != "" {
 		return strings.TrimSpace(string(b))
 	}
-	return "tadalab"
+	return ""
 }
 
 func main() {
@@ -186,7 +186,7 @@ func main() {
 	}
 }
 
-const usage = `she: run commands on the server (commands come on stdin)
+const usage = `she: run commands on an ssh host (commands come on stdin)
   Git Bash                      PowerShell
   she <<'E'                     @'
   commands                      commands
@@ -237,6 +237,9 @@ func dial() (net.Conn, *state, error) {
 // bashes no other call can see. A lock left by a call that died is taken over
 // after 10 s.
 func startDaemon() error {
+	if hostName() == "" {
+		return errors.New("no host set: run she -setup HOST (a host ssh knows, from ~/.ssh/config)")
+	}
 	lock := filepath.Join(dir(), "start.lock")
 	for i := 0; ; i++ {
 		f, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)

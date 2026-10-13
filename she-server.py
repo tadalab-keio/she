@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 # she on the server: the same use as she on a PC, from an ssh login of the
-# same user (in place of tmux), for the bashes that she on a PC keeps
-# (2026-10-12, ~/lab-tools/she/).
+# same user (in place of tmux), for the bashes that she on a PC keeps.
 #
 #   she <<'E' ... E      run with a fresh bash here (no rc files, stdin empty)
 #   she NAME <<'E' ...   run in the bash kept for NAME, or, while a command

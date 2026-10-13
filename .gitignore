@@ -1,3 +1,4 @@
 # made by build.sh; Install-She.ps1 copies it from this folder
 she.exe
 __pycache__/
+README-lab.md
