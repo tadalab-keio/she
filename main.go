@@ -1,7 +1,7 @@
 //go:build windows
 
 // she - Efficient Shell: run commands on a Linux server from Windows over one
-// kept SSH connection (2026-10-11, ~/lab-tools/she/).
+// kept SSH connection.
 //
 // Commands come only on stdin; the argument is a session name or an option.
 //
