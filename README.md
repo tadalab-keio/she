@@ -112,7 +112,7 @@ she.exe（呼ぶたびに起動）
 - **サーバの案内との関係**：she の接続は `SHE=1` を付けて始めるので、`~/.bashrc` の「use she instead of ssh」の案内は出ない。
 - 取り次ぎ役の方式は 3 つ比べて決めた（`SHE_MODE=channel`／`bash`／既定の `agent`）：毎回 SSH のチャネルを開く `channel` は 0.24〜0.42 秒、bash を使い回す `bash` は 0.16〜0.46 秒、取り次ぎ役の `agent` は 0.15〜0.30 秒（2026-10-11、手元の起動込み）。
 
-## 方式の比較（2026-10-12、sho11 の PC。`true` を 6 回と、`sleep 1` を 3 つ同時に）
+## 方式の比較（2026-10-12、研究室の PC。`true` を 6 回と、`sleep 1` を 3 つ同時に）
 
 | 方式 | 1 回（秒） | `sleep 1` ×3 を同時に | 必要なもの・弱いところ |
 |---|---|---|---|
@@ -137,7 +137,7 @@ Plink は 0.84（`C:\Program Files\PuTTY\plink.exe`）。比べるために鍵�
 | `she.exe` | `build.sh` が作ったもの（`Install-She.ps1` がここから取る） |
 | `go.mod`・`go.sum` | Go の部品（`golang.org/x/crypto`・`golang.org/x/term`） |
 
-このフォルダは git のリポジトリ（2026-10-12〜。作者は研究室のアカウント `TadaLab`）。`she.exe` と `__pycache__/`（`build.sh` の検査が作る）は `.gitignore` で外してある。直したらコミットしてから `build.sh`。
+このフォルダは git のリポジトリ（2026-10-12〜。作者は研究室のアカウント `TadaLab`）で、<https://github.com/tadalab-keio/she> に公開している（MIT ライセンス、`LICENSE`。2026-10-13）。`she.exe` と `__pycache__/`（`build.sh` の検査が作る）は `.gitignore` で外してある。直したらコミットしてから `build.sh`。
 
 ## 分かっている制限
 
