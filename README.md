@@ -43,7 +43,21 @@ How waiting for input is told (from the state of the terminal, not from time):
 - Calls to the same name run **in order**. Only a single control character (Ctrl+C) and the hidden input of `she NAME` get through at once.
 - Left out of the terminal: line editing (readline), history (`!` expansion, `~/.bash_history`), colours (`TERM=dumb`) and pagers (`PAGER=cat`, `GIT_PAGER=cat`). stdout and stderr come as one stream. Full-screen programs (`vim`, `top`) wait for keys and return 254.
 - Input for a running command is typed as at a keyboard, **Enter as CR** (the terminal hands a program on the host an LF), and **terminal control sequences** (colours, cursor moves, window title) are taken out of the output. Both are for Windows reached with `ssh -t`: there an LF only continues the line (`>>` in PowerShell), and the console draws its screen with control sequences whatever `TERM` says.
-- **A PowerShell on a Windows machine**: `she NAME <<'E'`, `ssh -t HOST powershell -NoLogo`, `E` (returns 254 at its prompt), then `she NAME <<< 'one PowerShell line'`; quotes, `|`, `\` and `$` reach it as they are. `ssh -T` works too, but the output then comes in the console's code page (cp932 on a Japanese Windows); with `-t` it is UTF-8.
+
+### Other hosts and root
+
+| Call | Where it runs |
+|---|---|
+| `she HOST <<'E'` … `E` | a shell kept on **an ssh host** (a `Host` of the default host's or this PC's `~/.ssh/config`): **PowerShell on Windows** (also where ssh starts cmd), bash elsewhere |
+| `she HOST NAME` | another shell on the same host |
+| `she root` | a root shell on the default host (`sudo -i`) |
+| `she DEFAULT`, `she DEFAULT NAME` | a kept bash on the default host, as `she NAME` (an error when NAME is an ssh host) |
+
+- A host the default host knows is reached with its ssh (`ssh -tt HOST` over she's connection), others straight from this PC. Keys and ssh config then stay in one place on the default host, and when the PC reaches the hosts through a VPN that ends on the default host, the path is the same either way.
+- The script goes as one line that unpacks it (base64), so it may span lines and hold any quotes. Markers printed before it and by the prompt after it make a call **return as soon as the command ends, with its exit status** (PowerShell: the last command's `$?`, a native command's `$LASTEXITCODE`, 1 when the script stops on an error); `[HOST] directory` goes to stderr.
+- A line takes about 0.2-0.3 s; the first call, which starts the shell, 2.5-3.6 s.
+- Waiting for input can't be looked into there: output that stops without a line end for 1 s returns 254 (`Read-Host`). Then `she HOST <<< 'answer'`.
+- `she -l` lists them as `HOST NAME`. Tab completion does not reach them.
 
 ## For agents
 

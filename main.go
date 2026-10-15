@@ -76,7 +76,8 @@ type request struct {
 	Token   string `json:"token"`
 	Op      string `json:"op"`      // run, stop
 	Mode    string `json:"mode"`    // channel, bash, agent (SHE_MODE)
-	Session string `json:"session"` // she -s NAME: a kept bash (agent only)
+	Session string `json:"session"` // she NAME: a kept bash (agent only), or a host (remote.go)
+	Sub     string `json:"sub"`     // she HOST NAME: the NAME
 	Script  string `json:"script"`
 }
 
@@ -150,23 +151,23 @@ func main() {
 	case len(args) == 1 && args[0] == "--powershell-completion":
 		fmt.Print(powershellCompletion)
 		os.Exit(0)
-	case len(args) == 1 && args[0] != "" && args[0][0] != '-' && term.IsTerminal(int(os.Stdin.Fd())):
+	case names(args) && term.IsTerminal(int(os.Stdin.Fd())):
 		// she NAME typed at a console with nothing piped in: read one line
 		// without showing it (a password asked for by the running command)
 		// and send it as input, only while a command runs in NAME
-		fmt.Fprintf(os.Stderr, "she: input for %s (not shown): ", args[0])
+		fmt.Fprintf(os.Stderr, "she: input for %s (not shown): ", strings.Join(args, " "))
 		line, err := term.ReadPassword(int(os.Stdin.Fd()))
 		fmt.Fprintln(os.Stderr)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "she: reading the console:", err)
 			os.Exit(2)
 		}
-		os.Exit(run("\x03"+args[0], string(line)+"\n"))
+		os.Exit(runSub("\x03"+args[0], sub(args), string(line)+"\n"))
 	case len(args) == 2 && args[0] == "--input":
 		// input only, read from stdin (the Git Bash function for mintty)
 		text, _ := io.ReadAll(os.Stdin)
 		os.Exit(run("\x03"+args[1], string(text)))
-	case len(args) == 0 || (len(args) == 1 && args[0] != "" && args[0][0] != '-'):
+	case len(args) == 0 || names(args):
 		script, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "she: reading stdin:", err)
@@ -177,13 +178,33 @@ func main() {
 		script = bytes.ReplaceAll(script, []byte("\r\n"), []byte("\n"))
 		name := ""
 		if len(args) > 0 {
-			name = args[len(args)-1]
+			name = args[0]
 		}
-		os.Exit(run(name, string(script)))
+		os.Exit(runSub(name, sub(args), string(script)))
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
 	}
+}
+
+// names: she NAME or she HOST NAME
+func names(args []string) bool {
+	if len(args) < 1 || len(args) > 2 {
+		return false
+	}
+	for _, a := range args {
+		if a == "" || a[0] == '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func sub(args []string) string {
+	if len(args) == 2 {
+		return args[1]
+	}
+	return ""
 }
 
 const usage = `she: run commands on an ssh host (commands come on stdin)
@@ -192,10 +213,12 @@ const usage = `she: run commands on an ssh host (commands come on stdin)
   commands                      commands
   E                             '@ | she
   she NAME <<'E' ... E          @' ... '@ | she NAME     in the bash kept for NAME
+  she HOST [NAME] <<'E' ... E   @' ... '@ | she HOST     in a shell kept on HOST (an ssh host:
+                                                         PowerShell on Windows, else bash)
   she NAME <<< 'text'           'text' | she NAME        input to what runs in NAME
   she NAME                                               (alone) a password, not shown
   Tab after she <  (or she NAME <) writes the form above; Tab again switches it
-  she -l   the kept bashes (NAME, running or idle)
+  she -l   the kept shells (NAME, running or idle)
   she -start | she -stop | she -setup HOST
 `
 
@@ -296,7 +319,11 @@ func send(c net.Conn, req request) error {
 }
 
 func run(name, script string) int {
-	return call(request{Op: "run", Mode: os.Getenv("SHE_MODE"), Session: name, Script: script})
+	return runSub(name, "", script)
+}
+
+func runSub(name, sub, script string) int {
+	return call(request{Op: "run", Mode: os.Getenv("SHE_MODE"), Session: name, Sub: sub, Script: script})
 }
 
 // call sends req to the helper (starting it if none answers) and copies the
@@ -373,6 +400,11 @@ type conn struct {
 	agent *agent
 	bmu   sync.Mutex // idle bash (mode bash)
 	idle  []*bashWorker
+
+	hmu         sync.Mutex // the hosts the default host knows (remote.go)
+	serverHosts map[string]bool
+	rmu         sync.Mutex // kept shells on other hosts, by HOST/NAME
+	remotes     map[string]*remote
 }
 
 var logf = func(format string, a ...any) {}
@@ -489,7 +521,7 @@ func (cn *conn) serve(c net.Conn, token string, ln net.Listener) {
 		cn.runBash(c, &mu, req.Script)
 		return
 	case "", "agent":
-		cn.runAgent(c, &mu, req.Session, req.Script)
+		cn.runNamed(c, &mu, req)
 		return
 	}
 	sess, err := cn.session()
@@ -513,6 +545,68 @@ func (cn *conn) serve(c net.Conn, token string, ln net.Listener) {
 		exitCode(c, &mu, 255)
 		cn.drop()
 	}
+}
+
+// runNamed sends a call to where its name points (remote.go route): a kept
+// shell on another host, or the dispatcher on the default host (fresh bash,
+// kept bash, completion, input, the list). The name may start with the
+// operation: \x01 complete, \x03 input only, \x04 list.
+func (cn *conn) runNamed(c io.Writer, mu *sync.Mutex, req request) {
+	op, name := "", req.Session
+	if name != "" && name[0] < 32 {
+		op, name = name[:1], name[1:]
+	}
+	if op == "\x04" {
+		if l := cn.remoteList(); l != "" {
+			_ = frame(c, mu, frameStdout, []byte(l))
+		}
+		cn.runAgent(c, mu, req.Session, req.Script)
+		return
+	}
+	if name == "" {
+		cn.runAgent(c, mu, req.Session, req.Script)
+		return
+	}
+	bash, host, rname, via, err := cn.route(name, req.Sub)
+	if err != nil {
+		_ = frame(c, mu, frameError, []byte(err.Error()))
+		exitCode(c, mu, 2)
+		return
+	}
+	if host == "" {
+		cn.runAgent(c, mu, op+bash, req.Script)
+		return
+	}
+	if op == "\x01" {
+		// no completion from other hosts
+		exitCode(c, mu, 0)
+		return
+	}
+	r, err := cn.getRemote(host, rname, via)
+	if err != nil {
+		_ = frame(c, mu, frameError, []byte(err.Error()))
+		exitCode(c, mu, 255)
+		return
+	}
+	if op == "\x03" {
+		r.smu.Lock()
+		busy := r.busy
+		r.smu.Unlock()
+		if !busy {
+			_ = frame(c, mu, frameStderr, []byte("she: "+r.name()+" is not waiting for input; nothing was sent\n"))
+			exitCode(c, mu, 1)
+			return
+		}
+	}
+	rc := r.call(req.Script, frameWriter{c, mu, frameStdout}, frameWriter{c, mu, frameStderr})
+	if rc < 0 {
+		cn.rmu.Lock()
+		delete(cn.remotes, r.key)
+		cn.rmu.Unlock()
+		r.close()
+		rc = 255
+	}
+	exitCode(c, mu, rc)
 }
 
 // quote makes s one single-quoted shell word
