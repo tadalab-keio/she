@@ -42,6 +42,8 @@ How waiting for input is told (from the state of the terminal, not from time):
 
 - Calls to the same name run **in order**. Only a single control character (Ctrl+C) and the hidden input of `she NAME` get through at once.
 - Left out of the terminal: line editing (readline), history (`!` expansion, `~/.bash_history`), colours (`TERM=dumb`) and pagers (`PAGER=cat`, `GIT_PAGER=cat`). stdout and stderr come as one stream. Full-screen programs (`vim`, `top`) wait for keys and return 254.
+- Input for a running command is typed as at a keyboard, **Enter as CR** (the terminal hands a program on the host an LF), and **terminal control sequences** (colours, cursor moves, window title) are taken out of the output. Both are for Windows reached with `ssh -t`: there an LF only continues the line (`>>` in PowerShell), and the console draws its screen with control sequences whatever `TERM` says.
+- **A PowerShell on a Windows machine**: `she NAME <<'E'`, `ssh -t HOST powershell -NoLogo`, `E` (returns 254 at its prompt), then `she NAME <<< 'one PowerShell line'`; quotes, `|`, `\` and `$` reach it as they are. `ssh -T` works too, but the output then comes in the console's code page (cp932 on a Japanese Windows); with `-t` it is UTF-8.
 
 ## For agents
 

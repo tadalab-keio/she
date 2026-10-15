@@ -29,7 +29,7 @@ import (
 
 // ---------- agent ----------
 
-const agentCode = `import os,sys,struct,subprocess,threading,pty,termios,fcntl,tempfile,time,socket,json
+const agentCode = `import os,sys,struct,subprocess,threading,pty,termios,fcntl,tempfile,time,socket,json,re
 inp=sys.stdin.buffer
 out=sys.stdout.buffer
 lock=threading.Lock()
@@ -159,13 +159,33 @@ def keys(data):
     if len(data)==2 and data[0]<32 and data[1]==10:
         return data[:1]
     return data
+def typed(data):
+    # Input for a running command goes as typed at a keyboard, where Enter is
+    # CR: the terminal (ICRNL) turns it into LF for a program here, and ssh -t
+    # passes it on as it is, so a Windows console (PowerShell, cmd) on the far
+    # side also takes it as Enter (an LF there only continues the line, ">>").
+    return data.replace(b"\r\n",b"\r").replace(b"\n",b"\r")
+# Terminal control sequences: CSI (colors, cursor moves, erase), OSC (window
+# title), charset and keypad modes. The kept bash says TERM=dumb, but a
+# Windows console reached with ssh -t draws its screen with them anyway.
+CTRL=re.compile(rb"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][0-9A-Za-z]|[=>78DEHMNOc])")
+def plain(held,b):
+    # (text without control sequences, an unfinished sequence at the end to
+    # hold for the next chunk)
+    b=held+b
+    k=b.rfind(b"\x1b")
+    if k>=0 and len(b)-k<64 and not CTRL.match(b,k):
+        return CTRL.sub(b"",b[:k]),b[k:]
+    return CTRL.sub(b"",b),b""
 class Kept:
     # A bash kept for a name (she NAME): cd, variables and functions stay. It
     # is an interactive bash (bash -i) on its own terminal (pty), so ~/.bashrc,
     # aliases and the reboot notice work as when logged in, a command can ask
     # for input, also from the terminal as sudo and ssh do, and Ctrl-C stops
     # it (user, 2026-10-11). stdout and stderr come as one stream, as on a
-    # terminal, and what is typed in is echoed (a password is not). A script
+    # terminal, and what is typed in is echoed (a password is not). Input
+    # goes with Enter as CR and control sequences are taken out of the output
+    # (see typed and plain), so ssh -t to Windows works too. A script
     # is written to a file and sourced, so its text never passes the terminal.
     # A call returns when the command ends, with its exit code and the prompt
     # on stderr (it shows the user and the directory), or returns 254 when
@@ -206,6 +226,7 @@ class Kept:
         self.dead=False
         self.n=0
         self.last_nl=True
+        self.held=b""
         threading.Thread(target=self.pump,daemon=True).start()
         init=os.path.join(self.dir,"init")
         with open(init,"w") as f:
@@ -298,6 +319,7 @@ class Kept:
         hold=len(head)
         check=0
         def out(b):
+            b,self.held=plain(self.held,b)
             if b:
                 emit(b)
                 self.last_nl=b.endswith(b"\n")
@@ -384,7 +406,7 @@ class Kept:
             self.pending=b""
         if self.busy:
             if data:
-                os.write(self.m,data)
+                os.write(self.m,typed(data))
                 self.last_nl=True
         elif not data:
             send(i,3,struct.pack(">i",0))
@@ -421,7 +443,7 @@ class Kept:
         with self.st:
             ok=self.busy and not self.dead
             if ok:
-                os.write(self.m,data)
+                os.write(self.m,typed(data))
                 self.last_nl=True
         if ok:
             send(i,2,("she: sent to %s\n"%self.name).encode())
