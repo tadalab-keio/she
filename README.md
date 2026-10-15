@@ -38,7 +38,10 @@ How waiting for input is told (from the state of the terminal, not from time):
 |---|---|
 | echo off, line input | a password prompt (`su`, `getpass`, `sudo`'s own prompt) |
 | the foreground process reads from the terminal | waiting for input (`read`, `cat`, an interactive `python3`) |
-| a process it can't see into (run by `sudo`, another user's) or one waiting on the terminal and something else (`telnet`) | output that stops for 1 s without a line end (`Is this ok [y/N]: `) |
+| run by `sudo` (root's) | asked of a **root helper**: it or a descendant reads from a terminal, also the one `sudo` opens for it (seen also after a prompt that ends its line) |
+| one waiting on the terminal and something else (`telnet`), or root's when there is no helper | output that stops for 1 s without a line end (`Is this ok [y/N]: `) |
+
+With a terminal, `sudo` gives the command a terminal of its own (`use_pty`, the default since sudo 1.9.14), and root's processes can't be looked into as the user. The root helper (`sudo -n python3 ...`, started once, the first time one is needed, and kept) looks into `/proc` for it. When `sudo` wants a password it can't start, and the 1 s rule stays.
 
 - Calls to the same name run **in order**. Only a single control character (Ctrl+C) and the hidden input of `she NAME` get through at once.
 - Left out of the terminal: line editing (readline), history (`!` expansion, `~/.bash_history`), colours (`TERM=dumb`) and pagers (`PAGER=cat`, `GIT_PAGER=cat`). stdout and stderr come as one stream. Full-screen programs (`vim`, `top`) wait for keys and return 254.
@@ -143,7 +146,6 @@ she.exe (started for each call)
 ## Known limits
 
 - Named sessions live only while the PC's helper runs (`she -stop`, a reboot or an update ends them).
-- Input waits inside `sudo` are seen only when output stops for 1 s without a line end.
 - In Windows PowerShell 5.1, words starting with `-` (`she -s`) are not completed (PowerShell takes them as its own parameters).
 - In Git Bash, the first word on a `>` line after `cat <<X` is not completed (the same without she).
 - Hidden input in mintty (the Git Bash window) goes through the bash `read -s` wrapper in `completion.bash`; it has not been tried there.

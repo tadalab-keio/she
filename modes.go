@@ -177,6 +177,88 @@ def plain(held,b):
     if k>=0 and len(b)-k<64 and not CTRL.match(b,k):
         return CTRL.sub(b"",b[:k]),b[k:]
     return CTRL.sub(b"",b),b""
+# The root helper: what a kept bash's foreground job runs as root (sudo ...)
+# cannot be looked into from here, and with a terminal sudo also gives the
+# command a terminal of its own (use_pty). Started once, the first time it is
+# needed (sudo -n), it reads lines of process ids and answers whether one of
+# them or a descendant is in read() on a terminal ("read"), waits on one with
+# others ("poll"; sudo itself always does, relaying, so not sudo), or neither.
+ROOTLOOK=r'''import os,sys
+POLLS={7:1,23:0,232:-1,270:0,271:1,281:-1,441:-1}
+def tty(p,fd):
+    try:
+        t=os.readlink("/proc/%s/fd/%s"%(p,fd))
+    except OSError:
+        return False
+    return t.startswith("/dev/pts/") or t=="/dev/tty"
+for line in sys.stdin:
+    kids={}
+    for p in os.listdir("/proc"):
+        if p.isdigit():
+            try:
+                with open("/proc/%s/stat"%p) as f:
+                    kids.setdefault(f.read().rsplit(")",1)[1].split()[1],[]).append(p)
+            except (OSError,IndexError):
+                pass
+    ans="none"
+    seen=set()
+    todo=line.split()
+    while todo and ans!="read":
+        p=todo.pop()
+        if p in seen:
+            continue
+        seen.add(p)
+        todo+=kids.get(p,[])
+        try:
+            with open("/proc/%s/syscall"%p) as f:
+                sc=f.read().split()
+            with open("/proc/%s/comm"%p) as f:
+                comm=f.read().strip()
+        except OSError:
+            continue
+        if not sc or not sc[0].isdigit():
+            continue
+        n=int(sc[0])
+        try:
+            if n==0 and tty(p,int(sc[1],16)):
+                ans="read"
+            elif n in POLLS and comm!="sudo" and (POLLS[n]<0 or int(sc[1+POLLS[n]],16)>0):
+                if any(tty(p,x) for x in os.listdir("/proc/%s/fd"%p)):
+                    ans="poll"
+        except (OSError,ValueError,IndexError):
+            pass
+    sys.stdout.write(ans+"\n")
+    sys.stdout.flush()
+'''
+class RootLook:
+    def __init__(self):
+        self.p=None
+        self.off=False
+        self.lock=threading.Lock()
+    def ask(self,pids):
+        # "read", "poll", "none", or None when there is no helper (sudo
+        # wants a password: the 1 s rule from then on)
+        with self.lock:
+            if self.off:
+                return None
+            for _ in (0,1):
+                if self.p is None or self.p.poll() is not None:
+                    try:
+                        self.p=subprocess.Popen(["sudo","-n","python3","-c",ROOTLOOK],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+                    except OSError:
+                        break
+                try:
+                    self.p.stdin.write((" ".join(pids)+"\n").encode())
+                    self.p.stdin.flush()
+                    r=self.p.stdout.readline().decode().strip()
+                    if r:
+                        return r
+                except OSError:
+                    pass
+                self.p=None
+            self.off=True
+            return None
+rootlook=RootLook()
 class Kept:
     # A bash kept for a name (she NAME): cd, variables and functions stay. It
     # is an interactive bash (bash -i) on its own terminal (pty), so ~/.bashrc,
@@ -263,11 +345,12 @@ class Kept:
         # Whether the running command waits for input, from its state, not
         # from how long it is quiet: a program turned echo off (a password
         # prompt), or a process of the foreground job is in read() on the
-        # terminal. A process that cannot be looked into (another user's, as
-        # sudo ...) or that polls the terminal with others (telnet) counts
-        # only when its output stops without a newline for 1 s (a prompt such
-        # as "Is this ok [y/N]: "). A command that just runs (sleep, a build)
-        # is waited for.
+        # terminal. What runs as root (sudo ...) is looked into by the root
+        # helper (rootlook), on its own terminal too. A process that polls
+        # the terminal with others (telnet), or root's when there is no
+        # helper, counts only when its output stops without a newline for
+        # 1 s (a prompt such as "Is this ok [y/N]: "). A command that just
+        # runs (sleep, a build) is waited for.
         # Echo off with line input (ICANON) is a password prompt; sudo keeps
         # the terminal raw (echo and ICANON off) for as long as its command
         # runs (use_pty), whatever the command does, so raw tells nothing.
@@ -279,6 +362,7 @@ class Kept:
         except OSError:
             return None
         guess=False
+        hidden=[]
         for pid in os.listdir("/proc"):
             if not pid.isdigit():
                 continue
@@ -292,7 +376,7 @@ class Kept:
                 with open("/proc/%s/syscall"%pid) as f:
                     sc=f.read().split()
             except OSError:
-                guess=True
+                hidden.append(pid)
                 continue
             if not sc or not sc[0].isdigit():
                 continue
@@ -308,6 +392,14 @@ class Kept:
                             break
             except (OSError,ValueError,IndexError):
                 pass
+        if hidden:
+            # root's (sudo ...): asked of the root helper; without it, the
+            # 1 s rule
+            r=rootlook.ask(hidden)
+            if r=="read":
+                return "reading a terminal (under sudo)"
+            if r!="none":
+                guess=True
         if guess and not ends_nl and idle>=QUIET_PROMPT:
             return "a prompt (no newline, quiet for 1 s)"
         return None
