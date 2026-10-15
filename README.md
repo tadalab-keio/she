@@ -44,13 +44,12 @@ How waiting for input is told (from the state of the terminal, not from time):
 - Left out of the terminal: line editing (readline), history (`!` expansion, `~/.bash_history`), colours (`TERM=dumb`) and pagers (`PAGER=cat`, `GIT_PAGER=cat`). stdout and stderr come as one stream. Full-screen programs (`vim`, `top`) wait for keys and return 254.
 - Input for a running command is typed as at a keyboard, **Enter as CR** (the terminal hands a program on the host an LF), and **terminal control sequences** (colours, cursor moves, window title) are taken out of the output. Both are for Windows reached with `ssh -t`: there an LF only continues the line (`>>` in PowerShell), and the console draws its screen with control sequences whatever `TERM` says.
 
-### Other hosts and root
+### Other hosts
 
 | Call | Where it runs |
 |---|---|
 | `she HOST <<'E'` … `E` | a shell kept on **an ssh host** (a `Host` of the default host's or this PC's `~/.ssh/config`): **PowerShell on Windows** (also where ssh starts cmd), bash elsewhere |
 | `she HOST NAME` | another shell on the same host |
-| `she root` | a root shell on the default host (`sudo -i`) |
 | `she DEFAULT`, `she DEFAULT NAME` | a kept bash on the default host, as `she NAME` (an error when NAME is an ssh host) |
 
 - A host the default host knows is reached with its ssh (`ssh -tt HOST` over she's connection), others straight from this PC. Keys and ssh config then stay in one place on the default host, and when the PC reaches the hosts through a VPN that ends on the default host, the path is the same either way.

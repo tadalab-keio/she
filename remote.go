@@ -180,10 +180,7 @@ func newRemote(cn *conn, host, name string, via bool) (*remote, error) {
 		r.close()
 		return nil, err
 	}
-	if host == "root" {
-		// she root: a root shell on the default host
-		err = sess.Start(marker + " exec sudo -i")
-	} else if via {
+	if via {
 		err = sess.Start(marker + " exec ssh -tt -o BatchMode=yes -o ConnectTimeout=10 " + quote(host))
 	} else {
 		err = sess.Shell()
@@ -452,14 +449,6 @@ func (cn *conn) route(target, sub string) (bash, host, name string, via bool, er
 			sub = target
 		}
 		return "", target, sub, server[target], nil
-	case target == "root":
-		// a root shell on the default host (sudo -i), kept like the shells
-		// on other hosts: the end marker comes from its own prompt, which
-		// a kept bash of the dispatcher cannot set for a shell it starts
-		if sub == "" {
-			sub = target
-		}
-		return "", "root", sub, true, nil
 	case sub != "":
 		return "", "", "", false, fmt.Errorf("%s is not an ssh host (in the ~/.ssh/config of %s or of this PC)", target, cn.host)
 	}
