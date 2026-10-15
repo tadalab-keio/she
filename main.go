@@ -165,6 +165,15 @@ func main() {
 			os.Exit(2)
 		}
 		os.Exit(runSub("\x03"+args[0], sub(args), string(line)+"\n"))
+	case len(args) == 4 && (args[1] == "-put" || args[1] == "-get") && args[0] != "" && args[0][0] != '-':
+		// she HOST -put LOCAL PATH, she HOST -get PATH LOCAL: as below with HOST:PATH
+		if args[1] == "-put" {
+			args = []string{"-put", args[2], args[0] + ":" + args[3]}
+		} else {
+			args = []string{"-get", args[0] + ":" + args[2], args[3]}
+		}
+		os.Args = append(os.Args[:1], args...)
+		main()
 	case len(args) == 3 && args[0] == "-put":
 		// she -put LOCAL [HOST:]PATH (transfer.go)
 		data, err := os.ReadFile(args[1])
@@ -243,6 +252,7 @@ const usage = `she: run commands on an ssh host (commands come on stdin)
   she NAME                                               (alone) a password, not shown
   Tab after she <  (or she NAME <) writes the form above; Tab again switches it
   she -put LOCAL [HOST:]PATH    she -get [HOST:]PATH LOCAL    a file, checked by sha256
+  she HOST -put LOCAL PATH      she HOST -get PATH LOCAL      the same
   she -l   the kept shells (NAME, running or idle)
   she -start | she -stop | she -setup HOST
 `

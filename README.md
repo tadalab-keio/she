@@ -60,7 +60,7 @@ How waiting for input is told (from the state of the terminal, not from time):
 
 ### Files
 
-`she -put LOCAL [HOST:]PATH` and `she -get [HOST:]PATH LOCAL` (as scp; no host is the default host; a one-letter prefix such as `C:` is a drive). Both ends' **sha256 are compared**; `-get` writes the file only when they match. A missing folder there is made.
+`she HOST -put LOCAL PATH` and `she HOST -get PATH LOCAL`, or as scp `she -put LOCAL [HOST:]PATH` and `she -get [HOST:]PATH LOCAL` ( no host is the default host; a one-letter prefix such as `C:` is a drive). Both ends' **sha256 are compared**; `-get` writes the file only when they match. A missing folder there is made.
 
 - The default host: over the kept connection, in a session of its own (`cat`, written under another name and then moved into place).
 - A host the default host knows: its `scp -s` (SFTP) carries the file; the shell kept for the host (`she HOST`) makes the folder and tells the sha256.
