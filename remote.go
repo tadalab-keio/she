@@ -241,19 +241,42 @@ func (r *remote) close() {
 	}
 }
 
-// line is the one line that runs script
-func (r *remote) line(id, script string) string {
+// chunk is how much base64 one typed line carries: a console line has a
+// limit (cmd's 8191 characters) and a Windows console wraps at its width
+const chunk = 3000
+
+// lines are the lines typed to run script: the base64 of the script is
+// gathered into a variable in pieces of at most chunk, then the last line
+// prints the begin marker and runs it. The pieces' prompts print end markers
+// of id "c", before the begin marker, which a call does not look at.
+func (r *remote) lines(id, script string) string {
 	if r.win {
 		// the status is the last command's ($? right after it; a native
 		// command's exit code from $LASTEXITCODE), false when the script
 		// stops on an error: the prompt sees only that the script ran
 		script = "$global:__she_ok=$false; $global:LASTEXITCODE=0\n" + script + "\n$global:__she_ok=$?"
-		b64 := base64.StdEncoding.EncodeToString([]byte(script))
-		return "$global:__she_id='" + id + "'; Write-Host ('@@she-'+'beg-'+$global:__she_tok); " +
-			". ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + b64 + "'))))\r"
 	}
 	b64 := base64.StdEncoding.EncodeToString([]byte(script))
-	return "__she_id=" + id + `; printf '%s\n' "@@she-beg-$__she_tok"; eval "$(printf %s '` + b64 + `' | base64 -d)"` + "\r"
+	var b strings.Builder
+	for i := 0; i < len(b64); i += chunk {
+		j := min(i+chunk, len(b64))
+		op := "+="
+		if i == 0 {
+			op = "="
+		}
+		if r.win {
+			b.WriteString("$global:__she_id='c'; $global:__she_b" + op + "'" + b64[i:j] + "'\r")
+		} else {
+			b.WriteString("__she_id=c; __she_b" + op + "'" + b64[i:j] + "'\r")
+		}
+	}
+	if r.win {
+		b.WriteString("$global:__she_id='" + id + "'; Write-Host ('@@she-'+'beg-'+$global:__she_tok); " +
+			". ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($global:__she_b))))\r")
+	} else {
+		b.WriteString("__she_id=" + id + `; printf '%s\n' "@@she-beg-$__she_tok"; eval "$(printf %s "$__she_b" | base64 -d)"` + "\r")
+	}
+	return b.String()
 }
 
 // typed is input for a running command as typed at a keyboard (Enter is CR)
@@ -301,7 +324,7 @@ func (r *remote) call(script string, out, errw io.Writer) int {
 		r.bmu.Lock()
 		r.buf = nil // what the terminal showed since (the prompt)
 		r.bmu.Unlock()
-		_ = r.write([]byte(r.line(id, script)))
+		_ = r.write([]byte(r.lines(id, script)))
 	}
 	return r.collect(id, busy, out, errw)
 }
