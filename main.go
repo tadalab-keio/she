@@ -36,6 +36,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	_ "embed"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -78,7 +79,8 @@ type request struct {
 	Mode    string `json:"mode"`    // channel, bash, agent (SHE_MODE)
 	Session string `json:"session"` // she NAME: a kept bash (agent only), or a host (remote.go)
 	Sub     string `json:"sub"`     // she HOST NAME: the NAME
-	Script  string `json:"script"`
+	Script  string `json:"script"`  // the script, or the path for put and get
+	Data    string `json:"data"`    // put: the file, base64
 }
 
 // %USERPROFILE%\.she, not under AppData: a program started from an MSIX app
@@ -163,6 +165,28 @@ func main() {
 			os.Exit(2)
 		}
 		os.Exit(runSub("\x03"+args[0], sub(args), string(line)+"\n"))
+	case len(args) == 3 && args[0] == "-put":
+		// she -put LOCAL [HOST:]PATH (transfer.go)
+		data, err := os.ReadFile(args[1])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "she:", err)
+			os.Exit(2)
+		}
+		host, path := splitHost(args[2])
+		os.Exit(call(request{Op: "put", Session: host, Script: path, Data: base64.StdEncoding.EncodeToString(data)}))
+	case len(args) == 3 && args[0] == "-get":
+		// she -get [HOST:]PATH LOCAL: written only when it came whole
+		host, path := splitHost(args[1])
+		var buf bytes.Buffer
+		callOut = &buf
+		rc := call(request{Op: "get", Session: host, Script: path})
+		if rc == 0 {
+			if err := os.WriteFile(args[2], buf.Bytes(), 0644); err != nil {
+				fmt.Fprintln(os.Stderr, "she:", err)
+				rc = 2
+			}
+		}
+		os.Exit(rc)
 	case len(args) == 2 && args[0] == "--input":
 		// input only, read from stdin (the Git Bash function for mintty)
 		text, _ := io.ReadAll(os.Stdin)
@@ -218,6 +242,7 @@ const usage = `she: run commands on an ssh host (commands come on stdin)
   she NAME <<< 'text'           'text' | she NAME        input to what runs in NAME
   she NAME                                               (alone) a password, not shown
   Tab after she <  (or she NAME <) writes the form above; Tab again switches it
+  she -put LOCAL [HOST:]PATH    she -get [HOST:]PATH LOCAL    a file, checked by sha256
   she -l   the kept shells (NAME, running or idle)
   she -start | she -stop | she -setup HOST
 `
@@ -318,6 +343,9 @@ func send(c net.Conn, req request) error {
 	return err
 }
 
+// callOut is where call writes the stdout frames (a buffer for she -get)
+var callOut io.Writer = os.Stdout
+
 func run(name, script string) int {
 	return runSub(name, "", script)
 }
@@ -361,7 +389,7 @@ func call(req request) int {
 		}
 		switch head[0] {
 		case frameStdout:
-			os.Stdout.Write(data)
+			callOut.Write(data)
 		case frameStderr:
 			os.Stderr.Write(data)
 		case frameError:
@@ -506,6 +534,10 @@ func (cn *conn) serve(c net.Conn, token string, ln net.Listener) {
 		logf("stop")
 		ln.Close()
 		os.Exit(0)
+	}
+	if req.Op == "put" || req.Op == "get" {
+		cn.transfer(c, &mu, req)
+		return
 	}
 	if req.Op == "start" {
 		if _, err := cn.getAgent(); err != nil {
