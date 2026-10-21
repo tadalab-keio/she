@@ -145,9 +145,11 @@ func (r *remote) quiet(d, max time.Duration) []byte {
 	return acc
 }
 
+// A prompt may follow other text on its line: a Windows console moves the
+// cursor instead of sending a line break, and that move is taken out.
 var (
-	winBanner = regexp.MustCompile(`Microsoft Windows|(?m)^PS [^\n]*>\s*$|(?m)[A-Za-z]:\\[^\n]*>\s*$`)
-	psPrompt  = regexp.MustCompile(`(?m)^PS [^\n]*>\s*$`)
+	winBanner = regexp.MustCompile(`Microsoft Windows|Windows PowerShell|(?m)^PS [^\n]*>\s*$|(?m)[A-Za-z]:\\[^\n]*>\s*$`)
+	psPrompt  = regexp.MustCompile(`(?m)\bPS [^\n]*>\s*$`)
 )
 
 func newRemote(cn *conn, host, name string, via bool) (*remote, error) {
@@ -196,12 +198,28 @@ func newRemote(cn *conn, host, name string, via bool) (*remote, error) {
 		r.bmu.Unlock()
 		r.cv.Broadcast()
 	}()
-	first := r.plain(r.quiet(remoteQuiet, 20*time.Second))
+	// a Windows console may first send only control sequences
+	var first []byte
+	for t0 := time.Now(); len(bytes.TrimSpace(first)) == 0; {
+		left := 20*time.Second - time.Since(t0)
+		if left <= 0 {
+			break
+		}
+		b := r.quiet(remoteQuiet, left)
+		if len(b) == 0 {
+			break
+		}
+		first = append(first, r.plain(b)...)
+	}
 	r.held = nil
 	r.win = winBanner.Match(first)
 	if r.win {
+		// Windows PowerShell may print its prompt a second or more after
+		// its banner; another shell (cmd) starts one
 		if !psPrompt.Match(first) {
-			_ = r.write([]byte("powershell -NoLogo -NoProfile\r"))
+			if !bytes.Contains(first, []byte("Windows PowerShell")) {
+				_ = r.write([]byte("powershell -NoLogo -NoProfile\r"))
+			}
 			if err = r.until(psPrompt, 20*time.Second); err != nil {
 				r.close()
 				return nil, err
